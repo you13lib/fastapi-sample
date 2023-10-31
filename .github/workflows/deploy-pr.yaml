@@ -11,6 +11,8 @@ jobs:
   # https://docs.github.com/ja/packages/managing-github-packages-using-github-actions-workflows/publishing-and-installing-a-package-with-github-actions
   build-and-push-image:
     runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
     permissions:
       contents: read
       packages: write
@@ -35,3 +37,30 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+  update-manifest:
+    needs: build-and-push-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout you13lib/kubernetes-basics # https://github.com/you13lib/kubernetes-basics/blob/v2.0-rc/09-cicd/sample-app-manifests/deployment.yaml
+        uses: actions/checkout@v2
+        with:
+          repository: you13lib/kubernetes-basics
+          ref: v2.0-rc
+      - name: Update manifest file
+        env:
+          YAML_PATH: 09-cicd/sample-app-manifests/deployment.yaml
+          CONTAINER_NAME: fastapi-sample
+          IMAGE_FULL_NAME: ${{ needs.build-and-push-image.outputs.tags }}
+        run: |
+          yq e -i "(.spec.template.spec.containers[]|select(.name == \"${CONTAINER_NAME}\").image)|=\"${IMAGE_FULL_NAME}\"" ${YAML_PATH}
+          cat ${YAML_PATH}
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v3
+        with:
+          token: ${{ secrets.REPO_GITHUB_TOKEN }} # レクチャー内では、Personal Access Tokenを発行して fastapi-sampleレポから kubernetes-basicsレポコードをプッシュできる権限を与えました。
+          title: "Update fastapi-sample"
+          base: v2.0-rc
+          draft: true
+          body: |
+            # Changes
+            - Update `fastapi-sample` image
